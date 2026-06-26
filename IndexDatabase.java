@@ -28,9 +28,9 @@ public class IndexDatabase {
     public void insert(Path file) {
         String sql = "INSERT OR IGNORE INTO files(filename, filepath) VALUES(?, ?)";
         
-        try (Connection connection = DriverManager.getConnection(DB_URL)) {
-            PreparedStatement pstmt = connection.prepareStatement(sql);
-            pstmt.setString(1, file.getFileName().toString());
+        String name = (file.getFileName() != null) ? file.getFileName().toString() : file.toString();
+        try (Connection connection = DriverManager.getConnection(DB_URL); PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, name);
             pstmt.setString(2, file.toString());
             pstmt.executeUpdate();
         } catch (SQLException e) {
@@ -43,8 +43,7 @@ public class IndexDatabase {
         List<String> result = new ArrayList<>();
         String sql = "SELECT filepath FROM files WHERE filename LIKE ?";
         
-        try (Connection connection = DriverManager.getConnection(DB_URL)) {
-            PreparedStatement pstmt = connection.prepareStatement(sql);
+        try (Connection connection = DriverManager.getConnection(DB_URL); PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setString(1, "%" + query + "%");
             ResultSet rs = pstmt.executeQuery();
 
