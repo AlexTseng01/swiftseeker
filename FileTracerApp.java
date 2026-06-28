@@ -4,6 +4,8 @@ Main class
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
@@ -16,26 +18,58 @@ public class FileTracerApp {
         Path originPath = Paths.get("C:\\Users\\alext\\OneDrive\\Documents");
         FileScanner fs = new FileScanner(originPath, queue);
 
+        // 1 Producer thread
         Thread producer = new Thread(fs);
-        Thread consumer = new Thread(() -> {
-            try {
-                while (true) {
-                    Path file = queue.take();
 
-                    if (file.getFileName() != null && file.getFileName().toString().equals("__DONE__")) {
-                        System.out.println("Database is updated.");
-                        break;
+        // 4 Consumer threads
+        List<Thread> consumers = new ArrayList<>();
+        
+        for (int i = 0; i < 4; i++) {
+            Thread consumer = new Thread(() -> {
+                try {
+                    while (true) {
+                        Path file = queue.take();
+                        System.out.println("Visited " + file);
+
+                        if (file.getFileName() != null && file.getFileName().toString().equals("__DONE__")) {
+                            break;
+                        }
+
+                        db.insert(file);
                     }
-
-                    db.insert(file);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
+            });
+            consumers.add(consumer);
+            consumer.start();
+        }
+
+        System.out.println("Starting file scan...");
+        producer.start();
+
+        try {
+            producer.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        for (int i = 0; i < 4; i++) {
+            try {
+                queue.put(Paths.get("__DONE__"));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        });
+        }
 
-        System.out.println("Starting system scan...");
-        producer.start();
-        consumer.start();
+        for (Thread t : consumers) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        System.out.println("Database is updated.");
     }
 }
