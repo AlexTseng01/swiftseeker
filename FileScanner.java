@@ -6,37 +6,61 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileScanner implements Runnable {
-    private final Path root;
-    private final BlockingQueue<Path> queue;
+    private final BlockingQueue<Path> dirQueue; // All producer threads share
+    private final BlockingQueue<Path> fileQueue; // Consumed by consumers
+    private final AtomicInteger activeScanners;
+    private final Path POISON;
     
-    public FileScanner(Path root, BlockingQueue<Path> queue) {
-        this.root = root;
-        this.queue = queue;
+    public FileScanner(BlockingQueue<Path> dirQueue, BlockingQueue<Path> fileQueue, AtomicInteger activeScanners, Path POISON) {
+        this.dirQueue = dirQueue;
+        this.fileQueue = fileQueue;
+        this.activeScanners = activeScanners;
+        this.POISON = POISON;
     }
 
     @Override
     public void run() {
-        try {
-            scan(root);
-            queue.put(Paths.get("__DONE__"));
-        } catch (Exception e) {
-            e.printStackTrace();
+        while (true) {
+            try {
+                Path dir = dirQueue.take();
+
+                if (dir.equals(POISON)) {
+                    break;
+                }
+
+                activeScanners.incrementAndGet();
+
+                try {
+                    scan(dir);
+                } finally {
+                    activeScanners.decrementAndGet();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 
-    // Scans an entire directory, puts Paths in a BlockingQueue, consumer class CONSUMES the stuff
     private void scan(Path dir) throws Exception {
-        Files.list(dir).forEach(path -> {
-            try {
-                queue.put(path); // queue first because it needs to put all paths into the queue
-                if (Files.isDirectory(path)) {
-                    scan(path);
+        try (var stream = Files.list(dir)) {
+            stream.forEach(path -> {
+                try {
+                    // Consumers will consume this
+                    fileQueue.put(path);
+
+                    if (Files.isDirectory(path)) {
+                        // Producers will consume this
+                        dirQueue.put(path);
+                    }
+                } catch (Exception ignored) {
                 }
-            } catch (Exception ignored) {
-                // skipping because it will flood the terminal
-            }
-        });
+            });
+        }
     }
 }

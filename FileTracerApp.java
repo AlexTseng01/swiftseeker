@@ -8,30 +8,45 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileTracerApp {
     public static void main(String[] args) {
-        System.out.println("Testing...");
+        long startTime = System.nanoTime();
 
-        BlockingQueue<Path> queue = new ArrayBlockingQueue<>(10000);
+        int producerCount = 2;
+        int consumerCount = 4;
+        final Path POISON = Path.of("__DONE__");
+
+        BlockingQueue<Path> dirQueue = new ArrayBlockingQueue<>(10000);
+        BlockingQueue<Path> fileQueue = new ArrayBlockingQueue<>(10000);
+
+        AtomicInteger activeScanners = new AtomicInteger(0);
+
         IndexDatabase db = new IndexDatabase();
-        Path originPath = Paths.get("C:\\Users\\alext\\OneDrive\\Documents");
-        FileScanner fs = new FileScanner(originPath, queue);
 
-        // 1 Producer thread
-        Thread producer = new Thread(fs);
+        Path origin = Paths.get("C:\\Users\\alext\\OneDrive\\Documents");
+        dirQueue.add(origin);
 
-        // 4 Consumer threads
+        // Create producer threads
+        List<Thread> producers = new ArrayList<>();
+
+        for (int i = 0; i < producerCount; i++) {
+            Thread t = new Thread(new FileScanner(dirQueue, fileQueue, activeScanners, POISON));
+            producers.add(t);
+            t.start();
+        }
+
+        // Create consumer threads
         List<Thread> consumers = new ArrayList<>();
         
-        for (int i = 0; i < 4; i++) {
-            Thread consumer = new Thread(() -> {
+        for (int i = 0; i < consumerCount; i++) {
+            Thread t = new Thread(() -> {
                 try {
                     while (true) {
-                        Path file = queue.take();
-                        System.out.println("Visited " + file);
+                        Path file = fileQueue.take();
 
-                        if (file.getFileName() != null && file.getFileName().toString().equals("__DONE__")) {
+                        if (file.equals(POISON)) {
                             break;
                         }
 
@@ -41,22 +56,48 @@ public class FileTracerApp {
                     Thread.currentThread().interrupt();
                 }
             });
-            consumers.add(consumer);
-            consumer.start();
+
+            consumers.add(t);
+            t.start();
         }
 
-        System.out.println("Starting file scan...");
-        producer.start();
+        // Thread coordination
+        System.out.println("Waiting on threads to finish...");
 
-        try {
-            producer.join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        while (true) {
+            if (dirQueue.isEmpty() && activeScanners.get() == 0) {
+                break;
+            }
 
-        for (int i = 0; i < 4; i++) {
             try {
-                queue.put(Paths.get("__DONE__"));
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        for (int i = 0; i < producerCount; i++) {
+            try {
+                // dirQueue.put(Paths.get("__DONE__"));
+                dirQueue.put(POISON);
+            } catch (InterruptedException e) {
+                
+            }
+        }
+
+        for (Thread t : producers) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        for (int i = 0; i < consumerCount; i++) {
+            try {
+                // fileQueue.put(Paths.get("__DONE__"));
+                fileQueue.put(POISON);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -70,6 +111,9 @@ public class FileTracerApp {
             }
         }
 
-        System.out.println("Database is updated.");
+        // Print duration
+        long endTime = System.nanoTime();
+        double seconds = (endTime - startTime) / 1_000_000_000.0;
+        System.out.printf("Execution time: %.3f seconds%n", seconds);
     }
 }
