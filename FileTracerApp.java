@@ -14,7 +14,7 @@ public class FileTracerApp {
     public static void main(String[] args) {
         long startTime = System.nanoTime();
 
-        int producerCount = 4;
+        int producerCount = 8;
         int consumerCount = 4;
         final Path POISON = Path.of("__DONE__");
 
@@ -25,7 +25,7 @@ public class FileTracerApp {
 
         IndexDatabase db = new IndexDatabase();
 
-        Path origin = Paths.get("C:\\");
+        Path origin = Paths.get("C:\\Users\\alext\\OneDrive\\Documents");
         dirQueue.add(origin);
 
         // Create producer threads
